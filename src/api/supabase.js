@@ -142,3 +142,33 @@ export const likeMoment = async (id) => {
   const { data, error } = await supabase.rpc('increment_likes', { moment_id: id })
   return { data, error }
 }
+
+// ==================== Storage API ====================
+
+export const uploadImage = async (file, bucket = 'blog-images') => {
+  if (!supabase) return notConfigured()
+
+  const fileExt = file.name.split('.').pop()
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+  const filePath = `${fileName}`
+
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .upload(filePath, file)
+
+  if (error) return { data: null, error }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(filePath)
+
+  return { data: { path: filePath, url: publicUrl }, error: null }
+}
+
+export const deleteImage = async (filePath, bucket = 'blog-images') => {
+  if (!supabase) return notConfigured()
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .remove([filePath])
+  return { data, error }
+}

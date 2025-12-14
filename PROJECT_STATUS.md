@@ -24,7 +24,7 @@
 
 已将视图层数据源切换为：
 
-1) 如果 Supabase 已正确配置：从 Supabase 读取数据  
+1) 如果 Supabase 已正确配置：从 Supabase 读取数据
 2) 如果 Supabase 未配置：自动回退到 `src/api/mock.js`，保证页面可演示不白屏
 
 涉及文件：
@@ -32,9 +32,33 @@
 - `src/api/supabase.js`：新增 `isSupabaseConfigured()`，并在未配置时避免创建 client
 - `src/views/Home.vue`、`src/views/Articles.vue`、`src/views/ArticleDetail.vue`、`src/views/Moments.vue`：读取 Supabase；失败/未配置回退 Mock
 
-### 2.2 Moments 移动端图片网格稳定性
+### 2.2 图片上传功能（本地上传 + Supabase Storage）
 
-`src/views/Moments.vue`：将图片布局改为 `grid-auto-rows` 驱动的网格高度策略，降低 `<768px` 下图片“塌陷/错位”的概率。
+新增完整的图片上传功能，支持：
+
+**后台管理 (`src/views/admin/Dashboard.vue`)**:
+- ✅ 发布动态时可本地上传图片（多图支持）
+- ✅ 个人设置中可本地上传头像
+- ✅ 支持 Supabase Storage 云存储
+- ✅ 未配置 Supabase 时使用 Base64 本地存储
+
+**前端页面 (`src/views/Home.vue`)**:
+- ✅ 首页头像可点击编辑
+- ✅ 支持 URL 输入或本地上传
+- ✅ 实时预览功能
+
+**Storage API (`src/api/supabase.js`)**:
+- `uploadImage(file, bucket)`: 上传图片到指定 bucket
+- `deleteImage(filePath, bucket)`: 删除指定图片
+- 自动生成唯一文件名，返回公开访问 URL
+
+**配置文件**:
+- `supabase/storage.sql`: Storage buckets 和 RLS 策略
+- `supabase/README.md`: 完整的 Supabase 配置指南
+
+### 2.3 Moments 移动端图片网格稳定性
+
+`src/views/Moments.vue`：将图片布局改为 `grid-auto-rows` 驱动的网格高度策略，降低 `<768px` 下图片"塌陷/错位"的概率。
 
 ## 3. 本地开发与环境变量
 
@@ -58,33 +82,43 @@ VITE_SUPABASE_KEY=你的_supabase_anon_key
 
 示例见：`.env.example`
 
-## 4. Supabase 数据库准备（建表/RLS/RPC）
+## 4. Supabase 数据库准备（建表/RLS/RPC/Storage）
 
-将 `supabase/schema.sql` 粘贴到 Supabase 控制台的 SQL Editor 执行，或用 MCP/CLI 方式应用迁移（推荐迁移方式以便可追踪）。
+详细配置指南请参考 `supabase/README.md`。
 
-### 表结构
+### 步骤 1: 执行数据库脚本
 
-- `articles`：
-  - `id` `bigserial` 主键
-  - `title` `text`
-  - `summary` `text`
-  - `content` `text`（Markdown）
-  - `category` `text`
-  - `created_at` `timestamptz`
-  - `views` `int`
-- `moments`：
-  - `id` `bigserial` 主键
-  - `content` `text`
-  - `images` `text[]`
-  - `likes` `int`
-  - `created_at` `timestamptz`
+将 `supabase/schema.sql` 粘贴到 Supabase 控制台的 SQL Editor 执行。
 
-### RPC
+**表结构**:
+- `articles`: 文章表 (id, title, summary, content, category, created_at, views)
+- `moments`: 朋友圈表 (id, content, images[], likes, created_at)
 
-- `increment_views(article_id bigint)`
-- `increment_likes(moment_id bigint)`
+**RPC 函数**:
+- `increment_views(article_id bigint)` - 增加文章浏览量
+- `increment_likes(moment_id bigint)` - 增加动态点赞数
 
-> 如果需要在前端匿名调用 RPC，需要确保对应 RLS/Policy 允许 `rpc` 的执行或通过安全的服务端层代理。
+### 步骤 2: 创建 Storage Buckets
+
+将 `supabase/storage.sql` 粘贴到 SQL Editor 执行。
+
+**Buckets**:
+- `blog-images`: 存储朋友圈动态图片
+- `avatars`: 存储用户头像
+
+**访问策略**:
+- ✅ 公开读取（所有人可查看图片）
+- ✅ 公开上传（开发环境，适合个人博客）
+- ⚠️ 生产环境建议启用认证限制
+
+### 步骤 3: 验证配置
+
+在 Supabase Dashboard 中检查：
+1. **Database** > Tables: 确认 `articles` 和 `moments` 表存在
+2. **Storage**: 确认 `blog-images` 和 `avatars` buckets 存在且为 Public
+3. **SQL Editor**: 测试 RPC 函数
+
+> 完整配置指南请查看 `supabase/README.md`
 
 ## 5. EdgeOne Pages 部署（静态站）
 
@@ -104,24 +138,43 @@ npm run build
 
 ### P0（必须）
 
-- 用 Supabase MCP/控制台确认 `articles`/`moments` 表、RLS、Policy、RPC 已正确生效
-- 配置生产环境的 `VITE_SUPABASE_URL`/`VITE_SUPABASE_KEY`（通过部署平台环境变量注入），确保线上读到真库
-- 确认 EdgeOne Pages MCP 可用并拿到部署 URL
+- ✅ ~~用 Supabase MCP/控制台确认 `articles`/`moments` 表、RLS、Policy、RPC 已正确生效~~
+- ✅ **数据库表已创建**（通过 MCP 自动完成 2024-12-14）:
+  - `articles` 表（3条示例文章）
+  - `moments` 表（4条示例动态）
+  - `increment_views` / `increment_likes` RPC 函数
+  - 完整的 RLS 策略（SELECT/INSERT/UPDATE/DELETE）
+  - 修复了 search_path 安全警告
+- ✅ **Supabase Storage Buckets 已创建**:
+  - `blog-images` bucket（朋友圈图片）
+  - `avatars` bucket（用户头像）
+  - 公开读取和上传权限已配置
+- ⚠️ 配置生产环境的 `VITE_SUPABASE_URL`/`VITE_SUPABASE_KEY`（需在 Vercel Dashboard 手动配置）
+- ✅ ~~确认 Vercel 部署成功~~ (已部署: https://blog-six-lake-83.vercel.app 和 https://cookiesen-blog.vercel.app)
 
 ### P1（强烈建议）
 
+- **Storage 安全加固**（新增）:
+  - 在 Supabase Storage Bucket Settings 中限制文件大小（推荐: 图片 5MB, 头像 1MB）
+  - 限制允许的 MIME 类型为 `image/jpeg, image/png, image/webp, image/gif`
+  - 生产环境启用 Supabase Auth，限制上传权限为已认证用户
+  - 添加客户端文件大小和类型验证
 - 鉴权与写操作：
   - 点赞（`increment_likes`）与浏览量（`increment_views`）的权限策略完善
   - 生产环境建议引入 Supabase Auth 或服务端代理，避免滥用
 - 数据加载体验：
-  - 列表页加 loading / error / empty 状态统一组件
+  - 列表页加 loading / error / empty 状态统一��件
   - 文章/动态分页或无限滚动
 
 ### P2（优化）
 
 - 组件按需引入（当前是整包 Element Plus 引入，后续可用自动导入插件减少体积）
-- 图片：
-  - Moments 图片来源迁移到 Supabase Storage（上传、压缩、鉴权、CDN）
+- **图片优化**:
+  - ✅ ~~Moments 图片迁移到 Supabase Storage~~ (已完成)
+  - 添加图片压缩功能（上传前客户端压缩）
+  - 图片懒加载优化
+  - 支持 WebP 格式
+  - CDN 加速配置
 - SEO 与分享：
   - `title/meta` 动态设置，文章详情支持 OG 标签（如需 SSR 可考虑 Nuxt）
 

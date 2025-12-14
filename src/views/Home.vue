@@ -1,11 +1,8 @@
 <template>
   <div class="home">
     <div class="hero-section">
-      <div class="avatar-wrapper" @click="showAvatarDialog = true">
+      <div class="avatar-wrapper">
         <el-avatar :size="100" :src="currentAvatar" />
-        <div class="avatar-edit-hint">
-          <el-icon><Edit /></el-icon>
-        </div>
       </div>
       <h1>Hi, I'm {{ siteSettings.nickname }}</h1>
       <p class="bio">{{ siteSettings.bio }}</p>
@@ -51,33 +48,6 @@
       </el-col>
     </el-row>
 
-    <!-- 头像更换弹窗 -->
-    <el-dialog v-model="showAvatarDialog" title="更换头像" width="400px">
-      <el-form label-position="top">
-        <el-form-item label="头像 URL">
-          <el-input v-model="newAvatarUrl" placeholder="输入图片链接" clearable />
-        </el-form-item>
-        <el-form-item label="或上传本地图片">
-          <el-upload
-            class="avatar-uploader"
-            action="#"
-            :auto-upload="false"
-            :show-file-list="false"
-            :on-change="handleAvatarChange"
-            accept="image/*"
-          >
-            <el-button type="primary">选择图片</el-button>
-          </el-upload>
-        </el-form-item>
-        <el-form-item label="预览">
-          <el-avatar :size="80" :src="previewAvatar || currentAvatar" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAvatarDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveAvatar">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -85,7 +55,6 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Edit } from '@element-plus/icons-vue'
 import { formatTime, mockArticles, mockMoments } from '@/api/mock'
 import { getArticles, getMoments, isSupabaseConfigured } from '@/api/supabase'
 
@@ -100,10 +69,7 @@ const siteSettings = reactive({
   github: 'https://github.com/cookiesen77-rgb'
 })
 
-// 头像相关
-const showAvatarDialog = ref(false)
-const newAvatarUrl = ref('')
-const previewAvatar = ref('')
+// 头像（只读，通过后台管理修改）
 const currentAvatar = ref('/avatar.png')
 
 const latestArticles = computed(() => {
@@ -124,26 +90,6 @@ const formatDate = (dateString) => {
 
 const goToArticle = (id) => {
   router.push(`/articles/${id}`)
-}
-
-const handleAvatarChange = (file) => {
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    previewAvatar.value = e.target.result
-    newAvatarUrl.value = ''
-  }
-  reader.readAsDataURL(file.raw)
-}
-
-const saveAvatar = () => {
-  const avatar = newAvatarUrl.value || previewAvatar.value
-  if (avatar) {
-    currentAvatar.value = avatar
-    localStorage.setItem('userAvatar', avatar)
-  }
-  showAvatarDialog.value = false
-  newAvatarUrl.value = ''
-  previewAvatar.value = ''
 }
 
 const loadContent = async () => {
@@ -194,30 +140,7 @@ onMounted(() => {
 }
 
 .avatar-wrapper {
-  position: relative;
   display: inline-block;
-  cursor: pointer;
-}
-
-.avatar-edit-hint {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 28px;
-  height: 28px;
-  background: #409eff;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 14px;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.avatar-wrapper:hover .avatar-edit-hint {
-  opacity: 1;
 }
 
 .bio { 
@@ -285,10 +208,6 @@ onMounted(() => {
 .time { 
   font-size: 12px; 
   color: #999; 
-}
-
-.avatar-uploader {
-  display: inline-block;
 }
 
 @media (max-width: 768px) {

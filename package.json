@@ -4,12 +4,15 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": "20"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:storage": "node scripts/setup-storage.js",
+    "create:buckets": "node scripts/create-buckets.js",
+    "verify:setup": "node scripts/verify-setup.js"
   },
   "dependencies": {
     "vue": "^3.4.0",

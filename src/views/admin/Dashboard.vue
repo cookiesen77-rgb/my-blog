@@ -60,7 +60,22 @@
           <el-form-item label="头像">
             <div class="avatar-setting">
               <el-avatar :size="80" :src="settings.avatar" />
-              <el-input v-model="settings.avatar" placeholder="头像图片 URL" style="margin-left: 15px; flex: 1;" />
+              <div style="margin-left: 15px; flex: 1;">
+                <el-input v-model="settings.avatar" placeholder="头像图片 URL" />
+                <el-upload
+                  class="avatar-uploader"
+                  action="#"
+                  :auto-upload="false"
+                  :show-file-list="false"
+                  :on-change="handleAvatarUpload"
+                  accept="image/*"
+                  style="margin-top: 10px;"
+                >
+                  <el-button size="small">
+                    <el-icon><Plus /></el-icon> 本地上传
+                  </el-button>
+                </el-upload>
+              </div>
             </div>
           </el-form-item>
           <el-form-item label="昵称">
@@ -108,21 +123,40 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="momentDialogVisible" title="发布动态" width="500px">
+    <el-dialog v-model="momentDialogVisible" title="发布动态" width="600px">
       <el-form :model="momentForm" label-width="80px">
         <el-form-item label="内容">
           <el-input v-model="momentForm.content" type="textarea" :rows="4" placeholder="想法..." />
         </el-form-item>
         <el-form-item label="图片">
-          <el-input v-model="momentForm.imageInput" placeholder="图片 URL，多张用逗号分隔" />
-          <div class="image-preview" v-if="momentImages.length">
-            <el-image v-for="(img, idx) in momentImages" :key="idx" :src="img" fit="cover" class="preview-img" />
+          <el-upload
+            class="image-uploader"
+            action="#"
+            :auto-upload="false"
+            :on-change="handleImageChange"
+            :on-remove="handleImageRemove"
+            :file-list="fileList"
+            list-type="picture-card"
+            accept="image/*"
+            multiple
+          >
+            <el-icon><Plus /></el-icon>
+          </el-upload>
+          <div style="margin-top: 10px; color: #999; font-size: 12px;">
+            支持本地上传或输入图片URL
           </div>
+          <el-input
+            v-model="momentForm.imageInput"
+            placeholder="或输入图片 URL，多张用逗号分隔"
+            style="margin-top: 10px;"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="momentDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveMoment">发布</el-button>
+        <el-button @click="closeMomentDialog">取消</el-button>
+        <el-button type="primary" @click="saveMoment" :loading="uploading">
+          {{ uploading ? '上传中...' : '发布' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -133,6 +167,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import { uploadImage, isSupabaseConfigured } from '@/api/supabase'
 
 const router = useRouter()
 const activeTab = ref('articles')
@@ -162,6 +197,8 @@ const momentForm = reactive({
   content: '',
   imageInput: ''
 })
+const fileList = ref([])
+const uploading = ref(false)
 
 const momentImages = computed(() => {
   if (momentForm.imageInput) {
@@ -229,18 +266,77 @@ const deleteArticle = (index) => {
 const openMomentDialog = () => {
   momentForm.content = ''
   momentForm.imageInput = ''
+  fileList.value = []
   momentDialogVisible.value = true
 }
 
-const saveMoment = () => {
+const closeMomentDialog = () => {
+  momentForm.content = ''
+  momentForm.imageInput = ''
+  fileList.value = []
+  momentDialogVisible.value = false
+}
+
+const handleImageChange = (file) => {
+  fileList.value.push(file)
+}
+
+const handleImageRemove = (file) => {
+  const index = fileList.value.findIndex(f => f.uid === file.uid)
+  if (index > -1) {
+    fileList.value.splice(index, 1)
+  }
+}
+
+const saveMoment = async () => {
   if (!momentForm.content) {
     ElMessage.warning('请填写内容')
     return
   }
-  moments.value.unshift({ id: Date.now(), content: momentForm.content, images: momentImages.value, likes: 0, created_at: new Date().toISOString() })
-  saveData()
-  ElMessage.success('动态已发布')
-  momentDialogVisible.value = false
+
+  uploading.value = true
+  const imageUrls = [...momentImages.value]
+
+  try {
+    if (fileList.value.length > 0 && isSupabaseConfigured()) {
+      for (const file of fileList.value) {
+        const { data, error } = await uploadImage(file.raw)
+        if (error) {
+          ElMessage.error(`图片上传失败: ${error.message}`)
+          uploading.value = false
+          return
+        }
+        if (data && data.url) {
+          imageUrls.push(data.url)
+        }
+      }
+    } else if (fileList.value.length > 0 && !isSupabaseConfigured()) {
+      for (const file of fileList.value) {
+        const reader = new FileReader()
+        const base64 = await new Promise((resolve) => {
+          reader.onload = (e) => resolve(e.target.result)
+          reader.readAsDataURL(file.raw)
+        })
+        imageUrls.push(base64)
+      }
+    }
+
+    moments.value.unshift({
+      id: Date.now(),
+      content: momentForm.content,
+      images: imageUrls,
+      likes: 0,
+      created_at: new Date().toISOString()
+    })
+    saveData()
+    ElMessage.success('动态已发布')
+    closeMomentDialog()
+  } catch (error) {
+    ElMessage.error('发布失败，请重试')
+    console.error(error)
+  } finally {
+    uploading.value = false
+  }
 }
 
 const deleteMoment = (index) => {
@@ -249,6 +345,32 @@ const deleteMoment = (index) => {
     saveData()
     ElMessage.success('已删除')
   }).catch(() => {})
+}
+
+const handleAvatarUpload = async (file) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await uploadImage(file.raw, 'avatars')
+      if (error) {
+        ElMessage.error(`上传失败: ${error.message}`)
+        return
+      }
+      if (data && data.url) {
+        settings.avatar = data.url
+        ElMessage.success('头像上传成功')
+      }
+    } else {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        settings.avatar = e.target.result
+        ElMessage.success('头像已设置（使用base64��')
+      }
+      reader.readAsDataURL(file.raw)
+    }
+  } catch (error) {
+    ElMessage.error('上传失败，请重试')
+    console.error(error)
+  }
 }
 
 const saveSettings = () => {
@@ -286,4 +408,15 @@ onMounted(() => {
 .avatar-setting { display: flex; align-items: center; }
 .image-preview { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .preview-img { width: 60px; height: 60px; border-radius: 4px; }
+
+/* 图片上传样式 */
+.image-uploader :deep(.el-upload--picture-card) {
+  width: 100px;
+  height: 100px;
+  line-height: 100px;
+}
+.image-uploader :deep(.el-upload-list--picture-card .el-upload-list__item) {
+  width: 100px;
+  height: 100px;
+}
 </style>
