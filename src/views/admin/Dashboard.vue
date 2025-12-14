@@ -167,7 +167,16 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { uploadImage, isSupabaseConfigured } from '@/api/supabase'
+import { 
+  uploadImage, 
+  isSupabaseConfigured, 
+  createArticle as createArticleApi, 
+  createMoment as createMomentApi,
+  getArticles,
+  getMoments,
+  deleteArticle as deleteArticleApi,
+  deleteMoment as deleteMomentApi
+} from '@/api/supabase'
 
 const router = useRouter()
 const activeTab = ref('articles')
@@ -209,9 +218,22 @@ const momentImages = computed(() => {
 
 const formatDate = (dateString) => new Date(dateString).toLocaleString('zh-CN')
 
-const loadData = () => {
-  articles.value = JSON.parse(localStorage.getItem('blogArticles') || '[]')
-  moments.value = JSON.parse(localStorage.getItem('blogMoments') || '[]')
+const loadData = async () => {
+  // 从 Supabase 加载数据
+  if (isSupabaseConfigured()) {
+    const [articlesRes, momentsRes] = await Promise.all([
+      getArticles({ limit: 200 }),
+      getMoments({ limit: 200 })
+    ])
+    articles.value = articlesRes.data || []
+    moments.value = momentsRes.data || []
+  } else {
+    // 未配置 Supabase 时从 localStorage 加载
+    articles.value = JSON.parse(localStorage.getItem('blogArticles') || '[]')
+    moments.value = JSON.parse(localStorage.getItem('blogMoments') || '[]')
+  }
+  
+  // 加载个人设置（始终从 localStorage）
   const saved = JSON.parse(localStorage.getItem('blogSettings') || '{}')
   settings.avatar = saved.avatar || localStorage.getItem('userAvatar') || '/avatar.png'
   settings.nickname = saved.nickname || 'cookiesen'
@@ -238,29 +260,61 @@ const openArticleDialog = (article = null, index = -1) => {
   articleDialogVisible.value = true
 }
 
-const saveArticle = () => {
+const saveArticle = async () => {
   if (!articleForm.title || !articleForm.content) {
     ElMessage.warning('请填写标题和内容')
     return
   }
-  if (articleIsEdit.value) {
-    const old = articles.value[articleEditIndex.value]
-    articles.value[articleEditIndex.value] = { ...articleForm, id: old.id, created_at: old.created_at, views: old.views }
-    ElMessage.success('文章已更新')
-  } else {
-    articles.value.unshift({ ...articleForm, id: Date.now(), created_at: new Date().toISOString(), views: 0 })
+  
+  if (isSupabaseConfigured()) {
+    // 保存到 Supabase 数据库
+    const { data, error } = await createArticleApi({
+      title: articleForm.title,
+      summary: articleForm.summary,
+      content: articleForm.content,
+      category: articleForm.category,
+      views: 0
+    })
+    if (error) {
+      ElMessage.error(`发布失败: ${error.message}`)
+      return
+    }
+    if (data && data[0]) {
+      articles.value.unshift(data[0])
+    }
     ElMessage.success('文章已发布')
+  } else {
+    // 未配置 Supabase 时保存到 localStorage
+    if (articleIsEdit.value) {
+      const old = articles.value[articleEditIndex.value]
+      articles.value[articleEditIndex.value] = { ...articleForm, id: old.id, created_at: old.created_at, views: old.views }
+      ElMessage.success('文章已更新')
+    } else {
+      articles.value.unshift({ ...articleForm, id: Date.now(), created_at: new Date().toISOString(), views: 0 })
+      ElMessage.success('文章已发布')
+    }
+    saveData()
   }
-  saveData()
   articleDialogVisible.value = false
 }
 
-const deleteArticle = (index) => {
-  ElMessageBox.confirm('确定删除这篇文章吗？', '提示', { type: 'warning' }).then(() => {
+const deleteArticle = async (index) => {
+  try {
+    await ElMessageBox.confirm('确定删除这篇文章吗？', '提示', { type: 'warning' })
+    const article = articles.value[index]
+    
+    if (isSupabaseConfigured() && article.id) {
+      const { error } = await deleteArticleApi(article.id)
+      if (error) {
+        ElMessage.error(`删除失败: ${error.message}`)
+        return
+      }
+    }
+    
     articles.value.splice(index, 1)
     saveData()
     ElMessage.success('已删除')
-  }).catch(() => {})
+  } catch {}
 }
 
 const openMomentDialog = () => {
@@ -321,14 +375,32 @@ const saveMoment = async () => {
       }
     }
 
-    moments.value.unshift({
-      id: Date.now(),
-      content: momentForm.content,
-      images: imageUrls,
-      likes: 0,
-      created_at: new Date().toISOString()
-    })
-    saveData()
+    // 保存到 Supabase 数据库
+    if (isSupabaseConfigured()) {
+      const { data, error } = await createMomentApi({
+        content: momentForm.content,
+        images: imageUrls,
+        likes: 0
+      })
+      if (error) {
+        ElMessage.error(`发布失败: ${error.message}`)
+        uploading.value = false
+        return
+      }
+      if (data && data[0]) {
+        moments.value.unshift(data[0])
+      }
+    } else {
+      // 未配置 Supabase 时保存到 localStorage
+      moments.value.unshift({
+        id: Date.now(),
+        content: momentForm.content,
+        images: imageUrls,
+        likes: 0,
+        created_at: new Date().toISOString()
+      })
+      saveData()
+    }
     ElMessage.success('动态已发布')
     closeMomentDialog()
   } catch (error) {
@@ -339,12 +411,23 @@ const saveMoment = async () => {
   }
 }
 
-const deleteMoment = (index) => {
-  ElMessageBox.confirm('确定删除这条动态吗？', '提示', { type: 'warning' }).then(() => {
+const deleteMoment = async (index) => {
+  try {
+    await ElMessageBox.confirm('确定删除这条动态吗？', '提示', { type: 'warning' })
+    const moment = moments.value[index]
+    
+    if (isSupabaseConfigured() && moment.id) {
+      const { error } = await deleteMomentApi(moment.id)
+      if (error) {
+        ElMessage.error(`删除失败: ${error.message}`)
+        return
+      }
+    }
+    
     moments.value.splice(index, 1)
     saveData()
     ElMessage.success('已删除')
-  }).catch(() => {})
+  } catch {}
 }
 
 const handleAvatarUpload = async (file) => {
