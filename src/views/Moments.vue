@@ -68,7 +68,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { formatTime, mockMoments } from '@/api/mock'
-import { getMoments, isSupabaseConfigured, likeMoment } from '@/api/supabase'
+import { getMoments, isSupabaseConfigured, likeMoment, getSiteSettings } from '@/api/supabase'
 
 const moments = ref([])
 const userAvatar = ref('/avatar.png')
@@ -136,23 +136,30 @@ const handleLike = async (moment) => {
 }
 
 const loadMoments = async () => {
-  // 加载用户设置
-  const saved = JSON.parse(localStorage.getItem('blogSettings') || '{}')
-  userAvatar.value = saved.avatar || localStorage.getItem('userAvatar') || '/avatar.png'
-  userNickname.value = saved.nickname || 'cookiesen'
-
   if (!isSupabaseConfigured()) {
     moments.value = mockMoments
     return
   }
 
-  const { data, error } = await getMoments({ limit: 200 })
-  if (error) {
+  // 并行加载设置和动态
+  const [settingsRes, momentsRes] = await Promise.all([
+    getSiteSettings(),
+    getMoments({ limit: 200 })
+  ])
+
+  // 加载用户设置
+  if (!settingsRes.error && settingsRes.data) {
+    userAvatar.value = settingsRes.data.avatar || '/avatar.png'
+    userNickname.value = settingsRes.data.nickname || 'cookiesen'
+  }
+
+  // 加载动态
+  if (momentsRes.error) {
     ElMessage.error('获取朋友圈失败')
     moments.value = []
     return
   }
-  moments.value = data || []
+  moments.value = momentsRes.data || []
 }
 
 onMounted(loadMoments)

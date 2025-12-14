@@ -172,3 +172,25 @@ export const deleteImage = async (filePath, bucket = 'blog-images') => {
     .remove([filePath])
   return { data, error }
 }
+
+// ==================== Site Settings API ====================
+
+export const getSiteSettings = async () => {
+  if (!supabase) return notConfigured()
+  const { data, error } = await supabase
+    .from('site_settings')
+    .select('*')
+    .eq('id', 1)
+    .single()
+  return { data, error }
+}
+
+export const updateSiteSettings = async (settings) => {
+  if (!supabase) return notConfigured()
+  const { data, error } = await supabase
+    .from('site_settings')
+    .update({ ...settings, updated_at: new Date().toISOString() })
+    .eq('id', 1)
+    .select()
+  return { data, error }
+}

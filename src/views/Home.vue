@@ -56,7 +56,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { formatTime, mockArticles, mockMoments } from '@/api/mock'
-import { getArticles, getMoments, isSupabaseConfigured } from '@/api/supabase'
+import { getArticles, getMoments, isSupabaseConfigured, getSiteSettings } from '@/api/supabase'
 
 const router = useRouter()
 const articles = ref([])
@@ -117,14 +117,27 @@ const loadContent = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadContent()
   
-  // 读取个人设置
+  // 从数据库读取站点设置
+  if (isSupabaseConfigured()) {
+    const { data, error } = await getSiteSettings()
+    if (!error && data) {
+      siteSettings.avatar = data.avatar || '/avatar.png'
+      siteSettings.nickname = data.nickname || 'cookiesen'
+      siteSettings.bio = data.bio || '全栈开发者 / AI爱好者 / 记录生活'
+      siteSettings.github = data.github || 'https://github.com/cookiesen77-rgb'
+      currentAvatar.value = siteSettings.avatar
+      return
+    }
+  }
+  
+  // 降级：从 localStorage 读取
   const saved = JSON.parse(localStorage.getItem('blogSettings') || '{}')
-  siteSettings.avatar = saved.avatar || localStorage.getItem('userAvatar') || '/avatar.png'
+  siteSettings.avatar = saved.avatar || '/avatar.png'
   siteSettings.nickname = saved.nickname || 'cookiesen'
-  siteSettings.bio = saved.bio || '全栈开发者 / Java & Vue 爱好者 / 记录生活'
+  siteSettings.bio = saved.bio || '全栈开发者 / AI爱好者 / 记录生活'
   siteSettings.github = saved.github || 'https://github.com/cookiesen77-rgb'
   currentAvatar.value = siteSettings.avatar
 })

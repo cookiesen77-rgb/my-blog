@@ -175,7 +175,9 @@ import {
   getArticles,
   getMoments,
   deleteArticle as deleteArticleApi,
-  deleteMoment as deleteMomentApi
+  deleteMoment as deleteMomentApi,
+  getSiteSettings,
+  updateSiteSettings
 } from '@/api/supabase'
 
 const router = useRouter()
@@ -221,23 +223,33 @@ const formatDate = (dateString) => new Date(dateString).toLocaleString('zh-CN')
 const loadData = async () => {
   // 从 Supabase 加载数据
   if (isSupabaseConfigured()) {
-    const [articlesRes, momentsRes] = await Promise.all([
+    const [articlesRes, momentsRes, settingsRes] = await Promise.all([
       getArticles({ limit: 200 }),
-      getMoments({ limit: 200 })
+      getMoments({ limit: 200 }),
+      getSiteSettings()
     ])
     articles.value = articlesRes.data || []
     moments.value = momentsRes.data || []
+    
+    // 从数据库加载个人设置
+    if (!settingsRes.error && settingsRes.data) {
+      settings.avatar = settingsRes.data.avatar || '/avatar.png'
+      settings.nickname = settingsRes.data.nickname || 'cookiesen'
+      settings.bio = settingsRes.data.bio || '全栈开发者 / AI爱好者 / 记录生活'
+      settings.github = settingsRes.data.github || 'https://github.com/cookiesen77-rgb'
+      return
+    }
   } else {
     // 未配置 Supabase 时从 localStorage 加载
     articles.value = JSON.parse(localStorage.getItem('blogArticles') || '[]')
     moments.value = JSON.parse(localStorage.getItem('blogMoments') || '[]')
   }
   
-  // 加载个人设置（始终从 localStorage）
+  // 降级：从 localStorage 加载个人设置
   const saved = JSON.parse(localStorage.getItem('blogSettings') || '{}')
-  settings.avatar = saved.avatar || localStorage.getItem('userAvatar') || '/avatar.png'
+  settings.avatar = saved.avatar || '/avatar.png'
   settings.nickname = saved.nickname || 'cookiesen'
-  settings.bio = saved.bio || '全栈开发者 / Java & Vue 爱好者 / 记录生活'
+  settings.bio = saved.bio || '全栈开发者 / AI爱好者 / 记录生活'
   settings.github = saved.github || 'https://github.com/cookiesen77-rgb'
 }
 
@@ -456,9 +468,30 @@ const handleAvatarUpload = async (file) => {
   }
 }
 
-const saveSettings = () => {
-  localStorage.setItem('blogSettings', JSON.stringify({ avatar: settings.avatar, nickname: settings.nickname, bio: settings.bio, github: settings.github }))
+const saveSettings = async () => {
+  // 保存到数据库
+  if (isSupabaseConfigured()) {
+    const { error } = await updateSiteSettings({
+      avatar: settings.avatar,
+      nickname: settings.nickname,
+      bio: settings.bio,
+      github: settings.github
+    })
+    if (error) {
+      ElMessage.error(`保存失败: ${error.message}`)
+      return
+    }
+  }
+  
+  // 同时保存到 localStorage（作为备份）
+  localStorage.setItem('blogSettings', JSON.stringify({ 
+    avatar: settings.avatar, 
+    nickname: settings.nickname, 
+    bio: settings.bio, 
+    github: settings.github 
+  }))
   localStorage.setItem('userAvatar', settings.avatar)
+  
   if (settings.password) {
     localStorage.setItem('adminPassword', settings.password)
     ElMessage.success('设置已保存，密码已更新')
