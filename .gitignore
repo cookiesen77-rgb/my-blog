@@ -2,8 +2,11 @@ node_modules
 dist
 .env
 .env.local
+.env.production
+.env.development
 .vercel
 .DS_Store
 *.log
 package-lock.json
 .mcp.json
+.tasks/
